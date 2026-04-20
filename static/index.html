@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM-Based Remediation Platform | TÜBİTAK AIOps</title>
+    <meta name="description" content="Otonom Bulut Altyapıları için LLM Tabanlı Remediation Simülasyon Platformu">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+    <div class="header-left">
+        <div class="logo">
+            <div class="logo-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+            </div>
+            <div>
+                <h1>LLM Remediation Platform</h1>
+                <span class="header-subtitle">TÜBİTAK 1005 — Otonom Bulut AIOps</span>
+            </div>
+        </div>
+    </div>
+    <div class="header-right">
+        <div class="mode-selector" id="modeSelector">
+            <button class="mode-btn" data-mode="rule-based" onclick="setMode('rule-based')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+                Rule-Based
+            </button>
+            <button class="mode-btn active" data-mode="llm" onclick="setMode('llm')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 014 4v2a4 4 0 01-8 0V6a4 4 0 014-4z"/><path d="M16 14a6 6 0 00-8 0"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/></svg>
+                LLM-Based
+            </button>
+            <button class="mode-btn" data-mode="compare" onclick="setMode('compare')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                Karşılaştır
+            </button>
+        </div>
+        <div class="status-badge" id="systemStatus">
+            <span class="status-dot"></span>
+            <span>Sistem Aktif</span>
+        </div>
+    </div>
+</header>
+
+<!-- Main Content -->
+<main class="main">
+    <!-- Left Panel: Scenario Selection -->
+    <aside class="panel scenarios-panel">
+        <div class="panel-header">
+            <h2>📋 Incident Senaryoları</h2>
+            <p class="panel-desc">Simüle etmek için bir senaryo seçin</p>
+        </div>
+        <div class="scenario-list" id="scenarioList">
+            <!-- JS ile doldurulacak -->
+        </div>
+        <button class="btn btn-accent" id="randomBtn" onclick="triggerRandom()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+            Rastgele Incident
+        </button>
+    </aside>
+
+    <!-- Center Panel: ReAct Trace -->
+    <section class="panel main-panel">
+        <div class="panel-header">
+            <h2>🧠 LLM Agent — ReAct Reasoning Trace</h2>
+            <div class="agent-mode" id="agentMode">Bekleniyor...</div>
+        </div>
+
+        <!-- Alert Display -->
+        <div class="alert-display hidden" id="alertDisplay">
+            <div class="alert-header" id="alertHeader"></div>
+            <div class="alert-metrics" id="alertMetrics"></div>
+        </div>
+
+        <!-- ReAct Steps -->
+        <div class="react-container" id="reactContainer">
+            <div class="empty-state">
+                <div class="empty-icon">🤖</div>
+                <h3>LLM Remediation Agent Hazır</h3>
+                <p>Soldaki panelden bir incident senaryosu seçin veya rastgele incident tetikleyin.</p>
+                <p class="empty-sub">Agent, ReAct (Reasoning + Acting) döngüsü ile anomaliyi analiz edecek ve çözüm üretecek.</p>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-bar hidden" id="actionBar">
+            <button class="btn btn-primary" id="executeBtn" onclick="executeRemediation()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Remediation Uygula
+            </button>
+            <button class="btn btn-outline" onclick="resetDashboard()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                Sıfırla
+            </button>
+        </div>
+    </section>
+
+    <!-- Right Panel: Results -->
+    <aside class="panel results-panel">
+        <div class="panel-header">
+            <h2>📊 Remediation Planı</h2>
+        </div>
+        <div class="results-content" id="resultsContent">
+            <div class="empty-state-small">
+                <p>Agent analizi tamamladığında remediation planı burada görünecek.</p>
+            </div>
+        </div>
+    </aside>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
