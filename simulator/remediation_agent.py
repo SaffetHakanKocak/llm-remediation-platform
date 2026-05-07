@@ -799,13 +799,14 @@ class LLMRemediationAgent:
         self.history = []  # Geçmiş remediation'lar
 
     def analyze_and_remediate(self, alert_data: dict, scenario_id: str = None,
-                              kubectl_logs: str = None, kubectl_pods: str = None) -> RemediationPlan:
+                              kubectl_logs: str = None, kubectl_pods: str = None,
+                              rule_context: dict = None) -> RemediationPlan:
         """
         Alert verisini analiz eder ve remediation planı üretir.
         Moda göre gerçek LLM API'sine veya simülasyona yönlendirir.
         """
         if self.mode == "llm":
-            return self._analyze_with_llm(alert_data, scenario_id, kubectl_logs, kubectl_pods)
+            return self._analyze_with_llm(alert_data, scenario_id, kubectl_logs, kubectl_pods, rule_context)
             
         # Simülasyon modu (Rule-Based)
         react_steps = []
@@ -1057,7 +1058,8 @@ class LLMRemediationAgent:
     # ─── Gerçek LLM (Model-Based) Entegrasyonu ───
 
     def _analyze_with_llm(self, alert_data: dict, scenario_id: str,
-                          kubectl_logs: str = None, kubectl_pods: str = None) -> RemediationPlan:
+                          kubectl_logs: str = None, kubectl_pods: str = None,
+                          rule_context: dict = None) -> RemediationPlan:
         import requests as http_requests
         import os
 
@@ -1134,6 +1136,16 @@ ZORUNLU ÇIKTI FORMATI (sadece JSON, markdown yok):
     ]
 }"""
 
+        if rule_context:
+            system_prompt += """
+
+RULE-BASED HANDOFF MODE:
+- Rule-based agent zaten kisa aralikli control-loop icinde ilk ReAct analizini yapti.
+- Sen sifirdan kopuk bir analiz yapma; once rule-based ReAct trace'ini ve gecici plani dogrula.
+- Eksik veya hatali nokta varsa duzelt, daha guvenli bir plan varsa kontrolu devral.
+- Ilk ReAct adiminin action alani "rule_handoff_review" olsun.
+"""
+
         log_section = ""
         if kubectl_logs:
             log_section = f"""
@@ -1141,10 +1153,18 @@ ZORUNLU ÇIKTI FORMATI (sadece JSON, markdown yok):
 {kubectl_logs}
 """
         pod_section = ""
+        rule_context_section = ""
         if kubectl_pods:
             pod_section = f"""
 --- kubectl get pods ---
 {kubectl_pods}
+"""
+        if rule_context:
+            rule_context_section = f"""
+--- RULE-BASED HANDOFF CONTEXT ---
+Rule-based agent 100ms control-loop icinde asagidaki gecici plani uretti.
+LLM gorevi: Bu ReAct trace'i ve gecici plani devral, dogrula, gerekirse duzelt veya daha iyi bir planla kontrolu al.
+{json.dumps(rule_context, indent=2, ensure_ascii=False)}
 """
 
         user_prompt = f"""Aşağıdaki Kubernetes cluster alert'ini ReAct metodolojisi ile analiz et ve çözüm üret.
@@ -1164,7 +1184,7 @@ Açıklama: {alert_data.get('description', 'N/A')}
 
 ═══ İLİŞKİLİ SERVİSLER ═══
 {', '.join(alert_data.get('related_services', []))}
-{log_section}{pod_section}
+{log_section}{pod_section}{rule_context_section}
 Yukarıdaki tüm verileri kullanarak derinlemesine bir ReAct analizi yap. Minimum 5 adım üret. Yanıtını SADECE JSON formatında ver."""
 
         payload = {

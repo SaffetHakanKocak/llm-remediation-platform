@@ -6,7 +6,7 @@ const API_BASE = "http://127.0.0.1:8765/api";
 let currentAlert = null;
 let currentScenarioId = null;
 let currentPlan = null;
-let currentMode = "llm"; // "rule-based" | "llm" | "compare"
+let currentMode = "llm"; // "rule-based" | "llm" | "hybrid" | "compare"
 
 // UI Elements
 const els = {
@@ -33,6 +33,7 @@ const ICONS = {
 const MODE_LABELS = {
     "rule-based": { icon: "📋", label: "Rule-Based", color: "var(--accent-orange)" },
     "llm": { icon: "🧠", label: "LLM-Based (Llama 3.3 70B)", color: "var(--accent-purple)" },
+    "hybrid": { icon: "🔀", label: "Hybrid: Rule Fast-Path + LLM Takeover", color: "var(--accent-cyan)" },
     "compare": { icon: "⚖️", label: "Karşılaştırma", color: "var(--accent-cyan)" }
 };
 
@@ -54,6 +55,8 @@ async function setMode(mode) {
         try {
             if (mode === "compare") {
                 await triggerCompareMode();
+            } else if (mode === "hybrid") {
+                await triggerHybridMode();
             } else {
                 await triggerRemediationAgent();
             }
@@ -136,6 +139,9 @@ async function selectScenario(id) {
         if (currentMode === "compare") {
             els.agentMode.innerHTML = `<span style="color:var(--accent-cyan)">⚖️</span> Her iki mod ile analiz yapılıyor...`;
             await triggerCompareMode();
+        } else if (currentMode === "hybrid") {
+            els.agentMode.innerHTML = `<span style="color:var(--accent-cyan)">🔀</span> Hibrit akış başlatılıyor...`;
+            await triggerHybridMode();
         } else {
             els.agentMode.innerHTML = `<span style="color:${ml.color}">${ml.icon}</span> ${ml.label} — ReAct Analizi Yapılıyor...`;
             await triggerRemediationAgent();
@@ -162,6 +168,9 @@ async function triggerRandom() {
         if (currentMode === "compare") {
             els.agentMode.innerHTML = `<span style="color:var(--accent-cyan)">⚖️</span> Her iki mod ile analiz yapılıyor...`;
             await triggerCompareMode();
+        } else if (currentMode === "hybrid") {
+            els.agentMode.innerHTML = `<span style="color:var(--accent-cyan)">🔀</span> Hibrit akış başlatılıyor...`;
+            await triggerHybridMode();
         } else {
             els.agentMode.innerHTML = `<span style="color:${ml.color}">${ml.icon}</span> ${ml.label} — ReAct Analizi Yapılıyor...`;
             await triggerRemediationAgent();
@@ -249,6 +258,247 @@ async function triggerRemediationAgent() {
         console.error(e);
         els.reactContainer.innerHTML = `<div class="empty-state-small" style="color:var(--accent-red)">Agent Error: ${e.message}</div>`;
     }
+}
+
+// ─── Hybrid Mode: Rule Fast-Path + LLM Takeover ───
+
+async function triggerHybridMode() {
+    try {
+        els.reactContainer.innerHTML = `
+            <div style="text-align:center; padding:20px;">
+                <div class="spinner"></div>
+                <div style="margin-top:12px; font-size:12px; color:var(--text-muted); line-height:1.6;">
+                    <span style="color:var(--accent-orange)">📋 Rule-based fast-path</span> hemen çalışıyor<br>
+                    <span style="color:var(--accent-purple)">🧠 LLM-based analiz</span> arka planda kontrolü hazırlıyor
+                </div>
+            </div>
+        `;
+
+        const res = await fetch(`${API_BASE}/remediate/hybrid`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert: currentAlert, scenario_id: currentScenarioId })
+        });
+
+        const data = await res.json();
+        const { initial_plan, llm_plan, final_plan, timeline, handoff_context, control_loop, decision, comparison } = data;
+
+        els.reactContainer.innerHTML = "";
+        renderHybridTimeline(timeline, decision, comparison);
+
+        renderPhaseHeader("📋 Phase 1", "100ms control-loop: rule-based mekanizma aktif", "var(--accent-orange)");
+        await renderControlLoopTicks(control_loop);
+
+        renderPhaseHeader("🤝 Handoff", "Rule-based ReAct trace ve geçici plan LLM'e bağlam olarak veriliyor", "var(--accent-cyan)");
+        renderHandoffContext(handoff_context);
+
+        renderPhaseHeader("📋 Rule Plan", "LLM'e gönderilen rule-based ReAct adımları", "var(--accent-orange)");
+        for (const step of initial_plan.react_trace || []) {
+            renderReactStep(step);
+            await delay(120);
+        }
+
+        renderPhaseHeader("🧠 Phase 2", "LLM rule-based analizden devam ederek doğruluyor/düzeltiyor", "var(--accent-purple)");
+        await delay(500);
+
+        if (llm_plan) {
+            for (const step of llm_plan.react_trace || []) {
+                renderReactStep(step);
+                await delay(180);
+            }
+        } else {
+            renderPhaseHeader("⚠️ LLM Fallback", decision.llm_error || "LLM sonucu alınamadı", "var(--accent-red)");
+        }
+
+        renderPhaseHeader(
+            decision.takeover ? "🔀 Kontrol Devri" : "✅ Kontrol Korundu",
+            decision.reason,
+            decision.takeover ? "var(--accent-cyan)" : "var(--accent-green)"
+        );
+
+        currentPlan = final_plan;
+        els.agentMode.innerHTML = `<span style="color:var(--accent-green)">✓ Hibrit Analiz Tamamlandı</span> <span class="mode-indicator hybrid" style="margin-left:8px">🔀 Final: ${decision.final_source}</span>`;
+        renderHybridResults(initial_plan, llm_plan, final_plan, handoff_context, control_loop, decision, comparison);
+        els.actionBar.classList.remove('hidden');
+    } catch (e) {
+        console.error(e);
+        els.reactContainer.innerHTML = `<div class="empty-state-small" style="color:var(--accent-red)">Hibrit analiz hatası: ${e.message}</div>`;
+    }
+}
+
+function renderPhaseHeader(title, desc, color) {
+    const el = document.createElement('div');
+    el.className = 'phase-header';
+    el.style.borderColor = color;
+    el.innerHTML = `
+        <span style="color:${color}; min-width:max-content">${title}</span>
+        <span style="color:var(--text-secondary); font-weight:500">${desc}</span>
+    `;
+    els.reactContainer.appendChild(el);
+}
+
+async function renderControlLoopTicks(controlLoop) {
+    const ticks = controlLoop?.ticks || [];
+    const box = document.createElement('div');
+    box.className = 'control-loop-box';
+    box.innerHTML = `
+        <div class="control-loop-title">Rule-Based Control Loop · ${controlLoop?.interval_ms || 100}ms aralık</div>
+        <div class="control-loop-summary">
+            LLM sonucu hazır olana kadar hızlı katman kontrolü bırakmaz. İlk kontrolde geçici plan seçilir,
+            sonraki kontrollerde durum değişmediyse aynı plan korunur.
+        </div>
+        <div class="control-loop-rows"></div>
+    `;
+    els.reactContainer.appendChild(box);
+
+    const rows = box.querySelector('.control-loop-rows');
+    const firstAction = ticks[0]?.action || "geçici remediation planı";
+    for (let i = 0; i < ticks.length; i++) {
+        const tick = ticks[i];
+        const isFirst = i === 0;
+        const isLast = i === ticks.length - 1;
+        const text = isFirst
+            ? `İlk hızlı kontrol: geçici plan seçildi · ${firstAction} · güven %${(tick.confidence * 100).toFixed(0)}`
+            : isLast
+                ? `Son hızlı kontrol: plan korunuyor · LLM supervisor sonucu karar katmanına aktarılacak`
+                : `Durum değişmedi: rule-based geçici planı koruyor · LLM arka planda analiz ediyor`;
+
+        const row = document.createElement('div');
+        row.className = `control-loop-row ${isFirst ? 'primary' : ''} ${isLast ? 'handoff' : ''}`;
+        row.innerHTML = `
+            <span class="control-loop-time">t+${tick.at_ms}ms</span>
+            <span class="control-loop-dot"></span>
+            <span class="control-loop-text">Tick ${tick.tick}: ${text}</span>
+        `;
+        rows.appendChild(row);
+        await delay(100);
+    }
+}
+
+function renderHandoffContext(handoff) {
+    const action = handoff?.temporary_action || {};
+    const box = document.createElement('div');
+    box.className = 'handoff-box';
+    box.innerHTML = `
+        <div class="handoff-grid">
+            <div>
+                <div class="handoff-label">LLM'e verilen geçici plan</div>
+                <div class="handoff-value">${action.action || 'N/A'}</div>
+                <div class="result-command" style="margin-top:8px">${action.command || 'N/A'}</div>
+            </div>
+            <div>
+                <div class="handoff-label">Gönderilen rule ReAct adımı</div>
+                <div class="handoff-value">${handoff?.react_steps_sent || 0} adım</div>
+                <div class="handoff-note">${handoff?.instruction || 'Rule çıktısını doğrula, düzelt veya devral.'}</div>
+            </div>
+        </div>
+    `;
+    els.reactContainer.appendChild(box);
+}
+
+function renderHybridTimeline(timeline, decision, comparison) {
+    const box = document.createElement('div');
+    box.className = 'hybrid-timeline';
+    const rows = (timeline || []).map(item => `
+        <div class="hybrid-timeline-row">
+            <div class="hybrid-time">${item.at_ms}ms</div>
+            <div class="hybrid-event">${item.label}</div>
+        </div>
+    `).join("");
+
+    box.innerHTML = `
+        <div class="hybrid-timeline-title">Hybrid Control Timeline</div>
+        ${rows}
+        <div class="hybrid-timeline-row">
+            <div class="hybrid-time">score</div>
+            <div class="hybrid-event">
+                Rule %${(comparison.rule_based_confidence * 100).toFixed(0)}
+                · LLM %${(comparison.llm_confidence * 100).toFixed(0)}
+                · Final ${decision.final_source}
+            </div>
+        </div>
+    `;
+    els.reactContainer.appendChild(box);
+}
+
+function renderHybridResults(rule, llm, finalPlan, handoff, controlLoop, decision, comp) {
+    const sourceLabel = decision.final_source === "llm" ? "LLM-Based" : "Rule-Based";
+    const sourceColor = decision.final_source === "llm" ? "var(--accent-purple)" : "var(--accent-orange)";
+    const llmSummary = llm ? `
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:var(--accent-purple)">🧠 LLM Derin Analiz</div>
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.5;">${llm.root_cause_analysis}</div>
+            <div class="result-command" style="margin-top:8px">${llm.selected_action?.command || 'N/A'}</div>
+        </div>
+    ` : `
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:var(--accent-red)">⚠️ LLM Derin Analiz</div>
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.5;">${decision.llm_error || 'LLM sonucu alınamadı.'}</div>
+        </div>
+    `;
+
+    els.resultsContent.innerHTML = `
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:var(--accent-cyan)">🔀 HIBRIT ÇALIŞMA MANTIĞI</div>
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.6;">
+                Rule-based ajan ${controlLoop?.interval_ms || 100}ms aralıklarla kısa gözlem/control-loop çalıştırdı.
+                İlk rule-based ReAct trace ve geçici plan LLM'e handoff context olarak verildi.
+                LLM sıfırdan kopuk analiz yapmak yerine bu analizi doğrulayıp düzelterek supervisor katmanı olarak devam etti.
+                LLM hazır olunca karar katmanı final kontrolün kimde kalacağını seçti.
+            </div>
+        </div>
+
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:var(--accent-cyan)">🤝 RULE → LLM HANDOFF</div>
+            <div class="compare-metric-row">
+                <span class="compare-metric-label">Handoff zamanı</span>
+                <span class="compare-metric-val">${handoff?.handoff_at_ms ?? 0}ms</span>
+            </div>
+            <div class="compare-metric-row">
+                <span class="compare-metric-label">LLM'e verilen ReAct</span>
+                <span class="compare-metric-val">${handoff?.react_steps_sent || 0} adım</span>
+            </div>
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; margin-top:8px;">
+                ${handoff?.instruction || 'Rule çıktısını doğrula, düzelt veya devral.'}
+            </div>
+        </div>
+
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:var(--accent-cyan)">⏱️ Zamanlama ve Karar</div>
+            <div class="compare-metric-row">
+                <span class="compare-metric-label">Rule fast-path</span>
+                <span class="compare-metric-val">${controlLoop?.tick_count || 0} tick · ${controlLoop?.interval_ms || 100}ms</span>
+            </div>
+            <div class="compare-metric-row">
+                <span class="compare-metric-label">LLM ready</span>
+                <span class="compare-metric-val">${comp.llm_time_ms}ms</span>
+            </div>
+            <div class="compare-metric-row">
+                <span class="compare-metric-label">Kontrol devri</span>
+                <span class="compare-metric-val" style="color:${decision.takeover ? 'var(--accent-cyan)' : 'var(--accent-green)'}">${decision.takeover ? 'LLM devraldı' : 'Rule kaldı'}</span>
+            </div>
+            <div style="font-size:12px; color:var(--text-primary); line-height:1.5; margin-top:8px;">${decision.reason}</div>
+        </div>
+
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:var(--accent-orange)">📋 Rule-Based İlk Plan</div>
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.5;">${rule.root_cause_analysis}</div>
+            <div class="result-command" style="margin-top:8px">${rule.selected_action?.command || 'N/A'}</div>
+        </div>
+
+        ${llmSummary}
+
+        <div class="compare-section">
+            <div class="compare-section-header" style="color:${sourceColor}">✅ FINAL AKTIF PLAN: ${sourceLabel}</div>
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.5;">${finalPlan.root_cause_analysis}</div>
+            <div class="result-card selected" style="margin-top:10px;">
+                <div class="result-action-name">${finalPlan.selected_action?.action || 'N/A'}</div>
+                <div style="font-size:11px; color:var(--text-secondary);">${finalPlan.selected_action?.description || ''}</div>
+                <div class="result-command">${finalPlan.selected_action?.command || 'N/A'}</div>
+            </div>
+            ${renderConfidenceBreakdown(finalPlan.confidence_factors || {}, "hybrid")}
+        </div>
+    `;
 }
 
 // ─── Compare Mode ───
@@ -600,7 +850,7 @@ async function executeRemediation() {
         const res = await fetch(`${API_BASE}/execute`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ alert: currentAlert, scenario_id: currentScenarioId })
+            body: JSON.stringify({ alert: currentAlert, scenario_id: currentScenarioId, plan: currentPlan })
         });
 
         const data = await res.json();
