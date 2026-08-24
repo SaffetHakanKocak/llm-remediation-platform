@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// LLM Remediation Platform — Frontend Logic
+// AI-Powered Remediation Platform — Frontend Logic
 // ═══════════════════════════════════════════
 
 const API_BASE = "http://127.0.0.1:8765/api";

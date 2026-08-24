@@ -16,7 +16,7 @@ load_dotenv(override=True)
 from simulator.cloud_simulator import CloudSimulator
 from simulator.remediation_agent import LLMRemediationAgent
 
-app = FastAPI(title="LLM-Based Remediation Platform", version="1.0.0")
+app = FastAPI(title="AI-Powered Remediation Platform", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

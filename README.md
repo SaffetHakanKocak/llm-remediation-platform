@@ -1,4 +1,4 @@
-# LLM Remediation Platform
+# AI-Powered Remediation Platform
 
 Kubernetes ve bulut altyapısı incident'larını gerçek bir cluster'a ihtiyaç duymadan analiz etmek için geliştirilmiş, FastAPI tabanlı bir AIOps simülasyon platformudur. Uygulama; alert üretimi, ReAct tabanlı kök neden analizi, risk değerlendirmesi ve remediation planı oluşturma adımlarını tek bir dashboard üzerinden gösterir.
 
